@@ -1,0 +1,7 @@
+LinkLayerLowDataEncoderDecoder=2
+MacAddressByte1=0xAA
+MacAddressByte2=0xBB
+MacAddressByte3=0xCC
+MacAddressByte4=0xDD
+MacAddressByte5=0xEE
+MacAddressByte6=0x03

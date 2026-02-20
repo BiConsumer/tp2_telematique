@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+  <!--Définitions pour les types pour les unités-->
+  <Type Name="MACAddress">
+    <DisplayString>{{ {m_address[0],H}:{m_address[1],H}:{m_address[2],H}:{m_address[3],H}:{m_address[4],H}:{m_address[5],H} }}</DisplayString>
+  </Type>
+  <Type Name="DynamicDataBuffer">
+    <DisplayString>{{ Size={m_size} }}</DisplayString>
+    <Expand>
+      <Item Name="Size">m_size</Item>
+      <ArrayItems>
+        <Size>m_size</Size>
+        <ValuePointer>m_data,H</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+</AutoVisualizer>
