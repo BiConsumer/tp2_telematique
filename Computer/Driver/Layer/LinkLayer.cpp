@@ -184,6 +184,12 @@ void LinkLayer::notifyACK(const Frame& frame, NumberSequence piggybackAck) {
     ev.Next = piggybackAck;
     std::lock_guard<std::mutex> lock(m_sendEventMutex);
     m_sendingEventQueue.push(ev);
+
+    {
+        Logger log{std::cout};
+        log << "Notify ACK " << frame.Ack << " from " << frame.Source
+            << " at computer: " << m_address << std::endl;
+    }
 }
 
 // Envoit un evenement de communication pour indiquer a l'envoi qu'on a recu un
@@ -242,8 +248,6 @@ size_t LinkLayer::startTimeoutTimer(NumberSequence numberData) {
 // actuel du Timer de ACK afin de le redemarrer s'il existe encore
 size_t LinkLayer::startAckTimer(size_t existingTimerID,
                                 NumberSequence ackNumber) {
-    Logger log{std::cout};
-    log << "Starting ACK timer for " << m_ackTimeout.count() << std::endl;
     if (!m_timers->restartTimer(existingTimerID, ackNumber)) {
         return m_timers->addTimer(m_ackTimeout,
                                   std::bind(&LinkLayer::ackTimeout,
@@ -308,12 +312,19 @@ void LinkLayer::senderCallback() {
     std::map<MACAddress, timers_t> timers_by_address{};
     std::map<size_t, MACAddress> address_by_timer_id;
 
+    std::map<MACAddress, std::queue<Packet>> outgoing_buffers;
+
     while (m_executeSending) {
-        Logger log{std::cout};
         // log << std::this_thread::get_id() << " : "
         //     << m_driver->getNetworkLayer().dataReady() << std::endl;
 
         const Event event = getNextSendingEvent();
+        if (event.Type != EventType::INVALID) {
+            Logger log{std::cout};
+            log << "Sending queue, Type: " << static_cast<uint32_t>(event.Type)
+                << " Queue size " << m_sendingEventQueue.size() << std::endl;
+        }
+
         switch (event.Type) {
         case EventType::SEND_ACK_REQUEST: {
             Frame ack{};
@@ -321,7 +332,12 @@ void LinkLayer::senderCallback() {
             ack.Source = m_address;
             ack.Ack = static_cast<NumberSequence>(event.Number);
             ack.Size = FrameType::ACK;
-            log << "Sending ACK " << ack.Ack << std::endl;
+
+            {
+                Logger log{std::cout};
+                log << "Sending ACK " << ack.Ack << " to " << ack.Destination
+                    << std::endl;
+            }
 
             sendFrame(ack);
             break;
@@ -332,7 +348,12 @@ void LinkLayer::senderCallback() {
             nak.Source = m_address;
             nak.Ack = static_cast<NumberSequence>(event.Number);
             nak.Size = FrameType::NAK;
-            log << "Sending NAK " << nak.Ack << std::endl;
+
+            {
+                Logger log{std::cout};
+                log << "Sending NAK " << nak.Ack << " to " << nak.Destination
+                    << std::endl;
+            }
 
             sendFrame(nak);
             break;
@@ -351,11 +372,16 @@ void LinkLayer::senderCallback() {
             }
 
             const NumberSequence number = event.Number;
-            log << "Send timeout for " << number << std::endl;
+
+            {
+                Logger log{std::cout};
+                log << "Send timeout for " << number << std::endl;
+            }
+
             window_t& window = window_it->second;
             timers_t& timers = timers_by_address[address];
 
-			const auto frame_it = window.find(number);
+            const auto frame_it = window.find(number);
             if (frame_it == window.end()) {
                 break;
             }
@@ -378,10 +404,15 @@ void LinkLayer::senderCallback() {
             }
 
             const NumberSequence nak = event.Number;
-            log << "Received NAK " << nak << std::endl;
+
+            {
+                Logger log{std::cout};
+                log << "Received NAK " << nak << " from " << event.Address
+                    << std::endl;
+            }
 
             window_t& window = window_it->second;
-			const auto frame_it = window.find(nak);
+            const auto frame_it = window.find(nak);
             if (frame_it == window.end()) {
                 break;
             }
@@ -404,9 +435,16 @@ void LinkLayer::senderCallback() {
         case EventType::ACK_RECEIVED: {
             const NumberSequence ack = event.Number;
             const MACAddress address = event.Address;
-            log << "Received ACK " << ack << std::endl;
+            {
+                Logger log{std::cout};
+                log << "Received ACK " << ack << " from " << address
+                    << std::endl;
+            }
+
             const auto window_it = windows_by_address.find(address);
             if (window_it == windows_by_address.end()) {
+                Logger log{std::cout};
+                log << "ACK received but no window for address!" << std::endl;
                 break;
             }
 
@@ -417,7 +455,11 @@ void LinkLayer::senderCallback() {
 
             while (between(ack, ack_expected, next_frame) &&
                    window.count(ack_expected)) {
-                log << "Handled ACK " << ack_expected << std::endl;
+                {
+                    Logger log{std::cout};
+                    log << "Handled ACK " << ack_expected << std::endl;
+                }
+
                 m_timers->removeTimer(timers[ack_expected]);
                 window.erase(ack_expected);
                 timers.erase(ack_expected);
@@ -432,12 +474,18 @@ void LinkLayer::senderCallback() {
             break;
         }
 
-        // Send packets if window is not full
+        // Drain all network packets
         while (m_driver->getNetworkLayer().dataReady()) {
-            // TODO: It is currently impossible to peek, we should peek the
-            // destintion and see if window is full before popping the packet
-            Packet packet = m_driver->getNetworkLayer().getNextData();
-            const MACAddress destination = arp(packet);
+            const Packet packet = m_driver->getNetworkLayer().getNextData();
+            outgoing_buffers[packet.Destination].push(packet);
+        }
+
+        // Handle all outgoing buffers
+        for (auto& [destination, queue] : outgoing_buffers) {
+            if (queue.empty()) {
+                continue;
+            }
+
             if (!windows_by_address.count(destination)) {
                 windows_by_address[destination] = window_t{};
                 ack_expected_by_address[destination] = 0;
@@ -449,13 +497,20 @@ void LinkLayer::senderCallback() {
             NumberSequence& next_frame = next_frame_by_address[destination];
             timers_t& timers = timers_by_address[destination];
 
-            // If we don't have any more space in the window, go next
+            // No more space for this destination
             if (window.size() >= m_maximumBufferedFrameCount) {
                 continue;
             }
 
-            log << "Network Layer Data Ready, sending to " << destination
-                << std::endl;
+			Packet packet = queue.front();
+			queue.pop();
+
+            {
+                Logger log{std::cout};
+                log << "Network Layer Data Ready, sending to " << destination
+                    << std::endl;
+            }
+
             Frame frame{};
             frame.Destination = destination;
             frame.Source = m_address;
@@ -471,11 +526,20 @@ void LinkLayer::senderCallback() {
                 frame.Ack = pending_it->second.AckNumber;
                 m_pending_acks.erase(pending_it);
                 notifyStopAckTimers(frame.Destination);
-                log << "Piggybacked ACK " << frame.Ack << std::endl;
+
+                {
+                    Logger log{std::cout};
+                    log << "Piggybacked ACK " << frame.Ack << std::endl;
+                }
             }
 
             if (sendFrame(frame)) {
-                log << "Correctly sent packet" << std::endl;
+                {
+                    Logger log{std::cout};
+                    log << "Correctly sent packet #" << frame.NumberSeq
+                        << " to " << frame.Destination << std::endl;
+                }
+
                 const std::size_t timer_id = startTimeoutTimer(next_frame);
                 window[next_frame] = frame;
                 timers[next_frame] = timer_id;
@@ -498,15 +562,17 @@ void LinkLayer::receiverCallback() {
     std::map<std::size_t, MACAddress> address_by_timer_id{};
 
     while (m_executeReceiving) {
-        Logger log{std::cout};
-
         const Event event = getNextReceivingEvent();
         switch (event.Type) {
         case EventType::STOP_ACK_TIMER_REQUEST: {
-            log << "Ack timer stop for " << event.Address << std::endl;
             auto it = timer_id_by_address.find(event.Address);
             if (it == timer_id_by_address.end()) {
                 break;
+            }
+
+            {
+                Logger log{std::cout};
+                log << "Ack timer stop for " << event.Address << std::endl;
             }
 
             stopAckTimer(it->second);
@@ -514,8 +580,6 @@ void LinkLayer::receiverCallback() {
         }
 
         case EventType::ACK_TIMEOUT: {
-            log << "Ack timeout for " << event.TimerID << std::endl;
-
             const auto address_it = address_by_timer_id.find(event.TimerID);
             if (address_it == address_by_timer_id.end()) {
                 break;
@@ -532,6 +596,13 @@ void LinkLayer::receiverCallback() {
 
             const PendingAck pending = pending_it->second;
             m_pending_acks.erase(pending_it);
+
+            {
+                Logger log{std::cout};
+                log << "Ack timeout for " << pending.AckNumber
+                    << " Timer ID: " << event.TimerID << std::endl;
+            }
+
             sendAck(pending.Address, pending.AckNumber);
             break;
         }
@@ -548,12 +619,18 @@ void LinkLayer::receiverCallback() {
         if (frame.Size == FrameType::ACK) {
             notifyACK(frame, frame.Ack);
             continue;
-        } else if (frame.Size == FrameType::NAK) {
+        }
+
+        if (frame.Size == FrameType::NAK) {
             notifyNAK(frame);
             continue;
         }
 
-        log << "Received data from " << frame.Source << std::endl;
+        {
+            Logger log{std::cout};
+            log << "Received data from " << frame.Source << std::endl;
+        }
+
         if (!windows_by_address.count(frame.Source)) {
             windows_by_address[frame.Source] = window_t{};
             ack_expected_by_address[frame.Source] = 0;
@@ -578,8 +655,11 @@ void LinkLayer::receiverCallback() {
 
         if ((in_window && window.count(frame.NumberSeq)) ||
             (!in_window && between(frame.NumberSeq, lower_old, ack_expected))) {
-            log << "Received duplicate frame, sending last ack"
-                << frame.NumberSeq << std::endl;
+            {
+                Logger log{std::cout};
+                log << "Received duplicate frame, sending last ack"
+                    << frame.NumberSeq << std::endl;
+            }
 
             const NumberSequence last_ack = (ack_expected - 1 +
                                              max_sequence_plus_one) %
@@ -590,22 +670,34 @@ void LinkLayer::receiverCallback() {
 
         // Still outside of window
         if (!in_window) {
-            log << "Received frame outside of window, ignoring "
-                << frame.NumberSeq << " " << ack_expected << " " << upper_bound
-                << std::endl;
+            {
+                Logger log{std::cout};
+                log << "Received frame outside of window, ignoring "
+                    << frame.NumberSeq << " " << ack_expected << " "
+                    << upper_bound << std::endl;
+            }
+
             sendNak(frame.Source, ack_expected);
             continue;
         }
 
         // Notify pigyback ACK if there is one
         if (frame.Ack != NO_ACK) {
-            log << "Received piggyback ACK " << frame.Ack << std::endl;
+            {
+                Logger log{std::cout};
+                log << "Received piggyback ACK " << frame.Ack << std::endl;
+            }
+
             notifyACK(frame, frame.Ack);
         }
 
         if (frame.NumberSeq != ack_expected) {
-            log << "Received frame out of order, expected " << ack_expected
-                << " but got " << frame.NumberSeq << std::endl;
+            {
+                Logger log{std::cout};
+                log << "Received frame out of order, expected " << ack_expected
+                    << " but got " << frame.NumberSeq << std::endl;
+            }
+
             sendNak(frame.Source, ack_expected);
         }
 
@@ -629,8 +721,12 @@ void LinkLayer::receiverCallback() {
                 next_timer_id++;
             }
 
-            log << "Delivering packet #" << next_frame.NumberSeq << " from "
-                << next_frame.Source << std::endl;
+            {
+                Logger log{std::cout};
+                log << "Delivering packet #" << next_frame.NumberSeq << " from "
+                    << next_frame.Source << std::endl;
+            }
+
             m_pending_acks[next_frame.Source] = PendingAck{next_frame.Source,
                                                            ack_expected};
 
@@ -638,6 +734,7 @@ void LinkLayer::receiverCallback() {
             timer_id = startAckTimer(timer_id, next_frame.NumberSeq);
             address_by_timer_id[timer_id] = next_frame.Source;
             timer_id_by_address[next_frame.Source] = timer_id;
+            next_timer_id = std::max(next_timer_id, timer_id + 1);
         }
     }
 }

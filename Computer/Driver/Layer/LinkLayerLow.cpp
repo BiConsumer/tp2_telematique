@@ -93,22 +93,22 @@ std::pair<bool, DynamicDataBuffer> PassthroughDataEncoderDecoder::decode(
 // Hamming Encoder decoder implementation
 //===================================================================
 HammingDataEncoderDecoder::HammingDataEncoderDecoder() {
-    // À faire TP
+    // ï¿½ faire TP
 }
 
 HammingDataEncoderDecoder::~HammingDataEncoderDecoder() {
-    // À faire TP
+    // ï¿½ faire TP
 }
 
 DynamicDataBuffer HammingDataEncoderDecoder::encode(
     const DynamicDataBuffer& data) const {
-    // À faire TP
+    // ï¿½ faire TP
     return data;
 }
 
 std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(
     const DynamicDataBuffer& data) const {
-    // À faire TP
+    // ï¿½ faire TP
     return std::pair<bool, DynamicDataBuffer>(true, data);
 }
 
@@ -143,11 +143,11 @@ std::pair<bool, DynamicDataBuffer> CRCDataEncoderDecoder::decode(
 
 	Logger log{std::cout};
     if (received_crc != computed_crc) {
-		log << "CRC check failed" << std::endl;
+		// log << "CRC check failed" << std::endl;
         return std::pair<bool, DynamicDataBuffer>{false, DynamicDataBuffer{}};
     }
 
-	log << "CRC check passed" << std::endl;
+	// log << "CRC check passed" << std::endl;
     return std::pair<bool, DynamicDataBuffer>{
         true,
         DynamicDataBuffer{data_size, data.data()}};
