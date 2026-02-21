@@ -48,7 +48,7 @@ int main() {
 
     // Test 2: Computer 2 envoie ACK a Computer 1 avec piggybacking
 	std::cout << "Test 2" << std::endl;
-    send_to_and_wait_receive(computer1, computer2, "patrick.webp");
+    send_to_and_wait_receive(computer1, computer2, "test.txt");
 	// std::this_thread::sleep_for(50ms);
  //    send_to_and_wait_receive(computer2, computer1, "patrick.webp");
     std::this_thread::sleep_for(2s);

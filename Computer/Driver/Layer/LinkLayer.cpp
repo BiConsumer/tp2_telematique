@@ -315,16 +315,7 @@ void LinkLayer::senderCallback() {
     std::map<MACAddress, std::queue<Packet>> outgoing_buffers;
 
     while (m_executeSending) {
-        // log << std::this_thread::get_id() << " : "
-        //     << m_driver->getNetworkLayer().dataReady() << std::endl;
-
         const Event event = getNextSendingEvent();
-        if (event.Type != EventType::INVALID) {
-            Logger log{std::cout};
-            log << "Sending queue, Type: " << static_cast<uint32_t>(event.Type)
-                << " Queue size " << m_sendingEventQueue.size() << std::endl;
-        }
-
         switch (event.Type) {
         case EventType::SEND_ACK_REQUEST: {
             Frame ack{};
@@ -449,9 +440,9 @@ void LinkLayer::senderCallback() {
             }
 
             window_t& window = window_it->second;
+            timers_t& timers = timers_by_address[address];
             NumberSequence& ack_expected = ack_expected_by_address[address];
             NumberSequence& next_frame = next_frame_by_address[address];
-            timers_t& timers = timers_by_address[address];
 
             while (between(ack, ack_expected, next_frame) &&
                    window.count(ack_expected)) {
@@ -488,22 +479,22 @@ void LinkLayer::senderCallback() {
 
             if (!windows_by_address.count(destination)) {
                 windows_by_address[destination] = window_t{};
+                timers_by_address[destination] = timers_t{};
                 ack_expected_by_address[destination] = 0;
                 next_frame_by_address[destination] = 0;
-                timers_by_address[destination] = timers_t{};
             }
 
             window_t& window = windows_by_address[destination];
-            NumberSequence& next_frame = next_frame_by_address[destination];
             timers_t& timers = timers_by_address[destination];
+            NumberSequence& next_frame = next_frame_by_address[destination];
 
             // No more space for this destination
             if (window.size() >= m_maximumBufferedFrameCount) {
                 continue;
             }
 
-			Packet packet = queue.front();
-			queue.pop();
+            Packet packet = queue.front();
+            queue.pop();
 
             {
                 Logger log{std::cout};
