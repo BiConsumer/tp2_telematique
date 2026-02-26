@@ -91,19 +91,19 @@ NetworkInterfaceCard& Computer::getNetworkInterfaceCard() {
 void Computer::send_file_to(const MACAddress& to, const std::string& fileName) {
     {
         Logger log(std::cout);
-        log << "Debut de l'envoi du fichier " << fileName
-            << " par l'ordinateur " << m_id << " a l'adresse " << to
-            << std::endl;
+        // log << "Debut de l'envoi du fichier " << fileName
+        //     << " par l'ordinateur " << m_id << " a l'adresse " << to
+        //     << std::endl;
     }
     m_card->start_sending_process(to, fileName);
     while (m_continueSending && !m_card->sendingFinished())
         ; // Attente active pour l'envoi complet du fichier
 
     if (m_continueSending) {
-        Logger log(std::cout);
-        log << "Fichier " << fileName << " envoye." << std::endl;
+        // Logger log(std::cout);
+        // log << "Fichier " << fileName << " envoye." << std::endl;
     } else {
-        Logger log(std::cout);
-        log << "Envoi arrete" << std::endl;
+        // Logger log(std::cout);
+        // log << "Envoi arrete" << std::endl;
     }
 }

@@ -154,7 +154,6 @@ void NetworkLayer::sendingFile(const MACAddress& to,
 
 bool NetworkLayer::startSending(const MACAddress& to,
                                 const std::string& filename) {
-	std::cout << "Was sending file " << m_executeSending << std::endl;
     if (!m_executeSending) {
         m_executeSending = true;
         m_sendingThread = std::thread(&NetworkLayer::sendingFile,
